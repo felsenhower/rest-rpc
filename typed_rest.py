@@ -136,48 +136,43 @@ class ApiClientEngine(StrEnum):
 
 
 class ApiClient:
-    def make_request_with_requests(self, route: Route, *args, **kwargs):
+    def _make_request_with_requests(self, route: Route, *args, **kwargs):
         import requests
 
         name = route.name
         path = route.path
-        EMPTY = inspect.Signature.empty
-        assert route.raw_annotations != EMPTY
-        expected_parameters = route.signature.parameters.values()
-        if len(args) + len(kwargs) > len(expected_parameters):
-            raise ValueError(
-                f'Unable to use accessor for route "{name}". Received too many parameters. Expected {len(expected_parameters)}, but received {len(args) + len(kwargs)}'
-            )
-        for pname, value in zip((p.name for p in expected_parameters), args):
-            kwargs.setdefault(pname, value)
-
-        for (pname, ptype), value in zip(
-            ((p.name, p.annotation) for p in expected_parameters), kwargs.values()
-        ):
-            type_adapter = TypeAdapter(ptype)
+        signature = route.signature
+        try:
+            bound = signature.bind(*args, **kwargs)
+        except TypeError as e:
+            raise ValueError(f'Unable to use accessor for route "{name}": {e}') from e
+        bound.apply_defaults()
+        for pname, value in bound.arguments.items():
+            param = signature.parameters[pname]
+            type_adapter = TypeAdapter(param.annotation)
             try:
-                _ = type_adapter.validate_python(value)
+                type_adapter.validate_python(value)
             except ValidationError as e:
                 raise ValueError(
-                    f'Unable to use accessor for route "{name}". Detected illegal type for parameter "{pname}". Expected "{ptype}", but received "{value.__class__}"'
+                    f'Unable to use accessor for route "{name}". '
+                    f'Illegal type for parameter "{pname}". '
+                    f'Expected "{param.annotation}", but got "{type(value)}".'
                 ) from e
-        for pname, value in list(kwargs.items()):
+        query_params = dict(bound.arguments)
+        for pname in list(query_params.keys()):
             placeholder = "{" + pname + "}"
             if placeholder in path:
-                path = path.replace(placeholder, str(value))
-                kwargs.pop(pname)
+                path = path.replace(placeholder, str(query_params.pop(pname)))
         url = self.base_url.rstrip("/") + path
-        method = route.method
         response = requests.request(
-            method=method,
+            method=route.method,
             url=url,
-            params=kwargs if kwargs else None,
+            params=query_params if query_params else None,
         )
         response.raise_for_status()
-        json = response.json()
-        return_type = route.signature.return_annotation
-        type_adapter = TypeAdapter(return_type)
-        return type_adapter.validate_python(json)
+        json_data = response.json()
+        type_adapter = TypeAdapter(signature.return_annotation)
+        return type_adapter.validate_python(json_data)
 
     def __init__(self, api_def: ApiDefinition, engine: str, base_url: str):
         if engine not in ApiClientEngine:
@@ -199,10 +194,12 @@ class ApiClient:
 
                     def make_accessor(route):
                         def accessor(*args, **kwargs):
-                            return self.make_request_with_requests(
+                            return self._make_request_with_requests(
                                 route, *args, **kwargs
                             )
 
+                        accessor.__annotations__ = route.raw_annotations
+                        accessor.__signature__ = route.signature
                         return accessor
 
                     setattr(self, name, make_accessor(route_def))
