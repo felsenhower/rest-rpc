@@ -131,9 +131,30 @@ class ApiImplementation:
 
 class ApiClientEngine(StrEnum):
     REQUESTS = "requests"
+    TESTCLIENT = "testclient"
 
 
 class ApiClient:
+    @staticmethod
+    def _get_init_signature(engine: ApiClientEngine):
+        dummy = None
+        match engine:
+            case ApiClientEngine.REQUESTS:
+
+                def dummy(*, base_url: str) -> None:
+                    pass
+
+            case ApiClientEngine.TESTCLIENT:
+                from fastapi import FastAPI
+
+                def dummy(*, app: FastAPI) -> None:
+                    pass
+
+            case _:
+                assert_never(self.engine)
+        assert dummy is not None and callable(dummy)
+        return inspect.signature(dummy)
+
     def _make_request_with_requests(self, route: Route, *args, **kwargs):
         import requests
 
@@ -172,7 +193,48 @@ class ApiClient:
         type_adapter = TypeAdapter(signature.return_annotation)
         return type_adapter.validate_python(json_data)
 
-    def __init__(self, api_def: ApiDefinition, engine: str, base_url: str):
+    def _make_request_with_testclient(self, route: Route, *args, **kwargs):
+        name = route.name
+        path = route.path
+        signature = route.signature
+
+        try:
+            bound = signature.bind(*args, **kwargs)
+        except TypeError as e:
+            raise ValueError(f'Unable to use accessor for route "{name}": {e}') from e
+
+        bound.apply_defaults()
+
+        for pname, value in bound.arguments.items():
+            param = signature.parameters[pname]
+            type_adapter = TypeAdapter(param.annotation)
+            try:
+                type_adapter.validate_python(value)
+            except ValidationError as e:
+                raise ValueError(
+                    f'Unable to use accessor for route "{name}". '
+                    f'Illegal type for parameter "{pname}". '
+                    f'Expected "{param.annotation}", but got "{type(value)}".'
+                ) from e
+
+        query_params = dict(bound.arguments)
+        for pname in list(query_params.keys()):
+            placeholder = "{" + pname + "}"
+            if placeholder in path:
+                path = path.replace(placeholder, str(query_params.pop(pname)))
+
+        response = self.testclient.request(
+            method=route.method,
+            url=path,
+            params=query_params if query_params else None,
+        )
+        response.raise_for_status()
+
+        json_data = response.json()
+        type_adapter = TypeAdapter(signature.return_annotation)
+        return type_adapter.validate_python(json_data)
+
+    def __init__(self, api_def: ApiDefinition, engine: str, **kwargs):
         if engine not in ApiClientEngine:
             raise ValueError(
                 f'Unsupported engine "{engine}". Supported engines are '
@@ -180,7 +242,26 @@ class ApiClient:
             )
         self.api_def = api_def
         self.engine = ApiClientEngine(engine)
-        self.base_url = base_url
+        sig = self._get_init_signature(self.engine)
+        try:
+            bound = sig.bind(**kwargs)
+        except TypeError as e:
+            raise ValueError(
+                f'Invalid parameters for ApiClient(engine="{engine}"): {e}'
+            ) from e
+
+        bound.apply_defaults()
+        match self.engine:
+            case ApiClientEngine.REQUESTS:
+                self.base_url = bound.arguments["base_url"]
+
+            case ApiClientEngine.TESTCLIENT:
+                from fastapi.testclient import TestClient
+
+                self.testclient = TestClient(bound.arguments["app"])
+
+            case _:
+                assert_never(self.engine)
         for name, route_def in self.api_def.routes.items():
             if hasattr(self, name):
                 raise ValueError(
@@ -196,10 +277,21 @@ class ApiClient:
                                 route, *args, **kwargs
                             )
 
-                        accessor.__annotations__ = route.raw_annotations
                         accessor.__signature__ = route.signature
                         return accessor
 
-                    setattr(self, name, make_accessor(route_def))
+                case ApiClientEngine.TESTCLIENT:
+
+                    def make_accessor(route):
+                        def accessor(*args, **kwargs):
+                            return self._make_request_with_testclient(
+                                route, *args, **kwargs
+                            )
+
+                        accessor.__signature__ = route.signature
+                        return accessor
+
                 case _:
-                    assert_never(f'Encountered unexpected engine "{engine}".')
+                    assert_never(self.engine)
+
+            setattr(self, name, make_accessor(route_def))
