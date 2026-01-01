@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import assert_never
-from pydantic import TypeAdapter, ValidationError
+from pydantic import TypeAdapter, ValidationError, PydanticSchemaGenerationError
 import inspect
 
 
@@ -13,6 +13,14 @@ class Route:
     signature: inspect.Signature
     raw_annotations: dict[str, type]
     raw_defaults: tuple | None
+
+
+def is_valid_pydantic_type(tp) -> bool:
+    try:
+        TypeAdapter(tp)
+    except PydanticSchemaGenerationError:
+        return False
+    return True
 
 
 class ApiDefinition:
@@ -31,6 +39,10 @@ class ApiDefinition:
                 raise ValueError(
                     f'Unable to add route "{name}" without a return annotation.'
                 )
+            if not is_valid_pydantic_type(signature.return_annotation):
+                raise ValueError(
+                    f'Unable to add route "{name}". "{signature.return_annotation}" cannot be converted to a Pydantic schema.'
+                )
             if any(p.kind == inspect.Parameter.VAR_KEYWORD for p in parameters):
                 raise ValueError(
                     f'Unable to add route "{name}". **kwargs is not supported.'
@@ -43,6 +55,15 @@ class ApiDefinition:
                 raise ValueError(
                     f'Unable to add route "{name}". Missing type annotations for parameters {tuple(p.name for p in parameters if p.annotation == EMPTY)}'
                 )
+
+            if (
+                sum(1 for p in parameters if not is_valid_pydantic_type(p.annotation))
+                > 0
+            ):
+                raise ValueError(
+                    f'Unable to add route "{name}". Annotations of parameters {tuple(p.name for p in parameters if not is_valid_pydantic_type(p.annotation))} cannot be converted to pydantic schemas.'
+                )
+
             raw_annotations = func.__annotations__
             raw_defaults = func.__defaults__
             self.routes[name] = Route(
