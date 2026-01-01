@@ -155,6 +155,18 @@ class ApiClientEngine(StrEnum):
     TESTCLIENT = "testclient"
 
 
+class NetworkError(IOError):
+    pass
+
+
+class HttpError(IOError):
+    pass
+
+
+class DecodeError(IOError):
+    pass
+
+
 class ApiClient:
     @staticmethod
     def _get_init_signature(engine: ApiClientEngine):
@@ -204,13 +216,30 @@ class ApiClient:
             if placeholder in path:
                 path = path.replace(placeholder, str(query_params.pop(pname)))
         url = self.base_url.rstrip("/") + path
-        response = requests.request(
-            method=route.method,
-            url=url,
-            params=query_params if query_params else None,
-        )
-        response.raise_for_status()
-        json_data = response.json()
+
+        query_params = query_params or None
+        try:
+            response = requests.request(
+                method=route.method,
+                url=url,
+                params=query_params,
+            )
+        except requests.RequestException as e:
+            raise NetworkError(
+                f'Network error while accessing route "{route.name}" with ({url=}, {query_params=})'
+            ) from e
+        try:
+            response.raise_for_status()
+        except requests.RequestException as e:
+            raise HttpError(
+                f'HTTP error while accessing route "{route.name}" with ({url=}, {query_params=})'
+            ) from e
+        try:
+            json_data = response.json()
+        except requests.RequestException as e:
+            raise HttpError(
+                f'Decode error while accessing route "{route.name}" with ({url=}, {query_params=})'
+            ) from e
         type_adapter = TypeAdapter(signature.return_annotation)
         return type_adapter.validate_python(json_data)
 
