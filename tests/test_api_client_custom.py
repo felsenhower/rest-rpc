@@ -1,0 +1,45 @@
+import pytest
+
+from typed_rest import (
+    ApiDefinition,
+    ApiImplementation,
+    ApiClient,
+    HttpError,
+    DecodeError,
+)
+
+from pydantic import BaseModel
+
+import fastapi
+import fastapi.testclient
+
+
+def test_client_simple():
+    api_def = ApiDefinition()
+
+    @api_def.get("/")
+    def simple_route() -> dict[str, str]: ...
+
+    api_impl = ApiImplementation(api_def)
+
+    @api_impl.handler
+    def simple_route():
+        return {"Hello": "World"}
+
+    app = api_impl.make_fastapi()
+
+    testclient = fastapi.testclient.TestClient(app)
+
+    def transport(method: str, path: str, params: dict | None):
+        url = path
+        response = testclient.request(
+            method=method,
+            url=url,
+            params=params,
+        )
+        response.raise_for_status()
+        return response.json()
+
+    api_client = ApiClient(api_def, engine="custom", transport=transport)
+    result = api_client.simple_route()
+    assert result == {"Hello": "World"}
