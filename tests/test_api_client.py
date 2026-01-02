@@ -1,3 +1,5 @@
+from typing import Any
+
 import pytest
 
 from typed_rest import (
@@ -55,7 +57,7 @@ def test_client_with_arg():
     @api_def.get("/items/{item_id}")
     def route_with_optional_arg(
         item_id: int, q: str | None = None
-    ) -> dict[str, int | str | None]: ...
+    ) -> dict[str, Any]: ...
 
     api_impl = ApiImplementation(api_def)
 

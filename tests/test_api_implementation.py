@@ -1,5 +1,7 @@
 import pytest
 
+from typing import Any
+
 from typed_rest import ApiDefinition, ApiImplementation
 
 
@@ -15,7 +17,7 @@ def test_add_simple_handlers():
     @api_def.get("/items/{item_id}")
     def route_with_optional_arg(
         item_id: int, q: str | None = None
-    ) -> dict[str, int | str | None]: ...
+    ) -> dict[str, Any]: ...
 
     api_impl = ApiImplementation(api_def)
 
@@ -125,7 +127,7 @@ def test_detect_incorrect_default():
     @api_def.get("/items/{item_id}")
     def route_with_optional_arg(
         item_id: int, q: str | None = None
-    ) -> dict[str, int | str | None]: ...
+    ) -> dict[str, Any]: ...
 
     api_impl = ApiImplementation(api_def)
     with pytest.raises(ValueError):
