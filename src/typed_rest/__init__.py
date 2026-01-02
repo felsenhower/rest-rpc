@@ -1,7 +1,8 @@
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import assert_never
-from pydantic import TypeAdapter, ValidationError, PydanticSchemaGenerationError
+import pydantic
+from pydantic import TypeAdapter
 import inspect
 
 
@@ -18,7 +19,7 @@ class Route:
 def is_valid_pydantic_type(tp) -> bool:
     try:
         TypeAdapter(tp)
-    except PydanticSchemaGenerationError:
+    except pydantic.PydanticSchemaGenerationError:
         return False
     return True
 
@@ -155,15 +156,23 @@ class ApiClientEngine(StrEnum):
     TESTCLIENT = "testclient"
 
 
-class NetworkError(IOError):
+class CommunicationError(IOError):
     pass
 
 
-class HttpError(IOError):
+class NetworkError(CommunicationError):
     pass
 
 
-class DecodeError(IOError):
+class HttpError(CommunicationError):
+    pass
+
+
+class DecodeError(CommunicationError):
+    pass
+
+
+class ValidationError(CommunicationError):
     pass
 
 
@@ -204,7 +213,7 @@ class ApiClient:
             type_adapter = TypeAdapter(param.annotation)
             try:
                 type_adapter.validate_python(value)
-            except ValidationError as e:
+            except pydantic.ValidationError as e:
                 raise ValueError(
                     f'Unable to use accessor for route "{name}". '
                     f'Illegal type for parameter "{pname}". '
@@ -226,24 +235,32 @@ class ApiClient:
             )
         except requests.RequestException as e:
             raise NetworkError(
-                f'Network error while accessing route "{route.name}" with ({url=}, {query_params=})'
+                f'Network error while accessing route "{route.name}" with ({url=}, {query_params=}).'
             ) from e
         try:
             response.raise_for_status()
         except requests.RequestException as e:
             raise HttpError(
-                f'HTTP error while accessing route "{route.name}" with ({url=}, {query_params=})'
+                f'HTTP error while accessing route "{route.name}" with ({url=}, {query_params=}).'
             ) from e
         try:
             json_data = response.json()
         except requests.RequestException as e:
             raise HttpError(
-                f'Decode error while accessing route "{route.name}" with ({url=}, {query_params=})'
+                f'Decode error while accessing route "{route.name}" with ({url=}, {query_params=}).'
             ) from e
-        type_adapter = TypeAdapter(signature.return_annotation)
-        return type_adapter.validate_python(json_data)
+        try:
+            type_adapter = TypeAdapter(signature.return_annotation)
+            return type_adapter.validate_python(json_data)
+        except pydantic.ValidationError as e:
+            raise ValidationError(
+                f'Validation error while accessing route "{route.name}" with ({url=}, {query_params=}).'
+            ) from e
 
     def _make_request_with_testclient(self, route: Route, *args, **kwargs):
+        import httpx
+        import json
+
         name = route.name
         path = route.path
         signature = route.signature
@@ -260,7 +277,7 @@ class ApiClient:
             type_adapter = TypeAdapter(param.annotation)
             try:
                 type_adapter.validate_python(value)
-            except ValidationError as e:
+            except pydantic.ValidationError as e:
                 raise ValueError(
                     f'Unable to use accessor for route "{name}". '
                     f'Illegal type for parameter "{pname}". '
@@ -273,16 +290,34 @@ class ApiClient:
             if placeholder in path:
                 path = path.replace(placeholder, str(query_params.pop(pname)))
 
-        response = self.testclient.request(
-            method=route.method,
-            url=path,
-            params=query_params if query_params else None,
-        )
-        response.raise_for_status()
+        try:
+            response = self.testclient.request(
+                method=route.method,
+                url=path,
+                params=query_params if query_params else None,
+            )
+        except httpx.HTTPError as e:
+            raise NetworkError(
+                f'Network error while accessing route "{route.name}".'
+            ) from e
+        try:
+            response.raise_for_status()
+        except httpx.HTTPError as e:
+            raise HttpError(f'HTTP error while accessing route "{route.name}".') from e
+        try:
+            json_data = response.json()
+        except json.JSONDecodeError as e:
+            raise DecodeError(
+                f'Decode error while accessing route "{route.name}".'
+            ) from e
 
-        json_data = response.json()
-        type_adapter = TypeAdapter(signature.return_annotation)
-        return type_adapter.validate_python(json_data)
+        try:
+            type_adapter = TypeAdapter(signature.return_annotation)
+            return type_adapter.validate_python(json_data)
+        except pydantic.ValidationError as e:
+            raise ValidationError(
+                f'Validation error while accessing route "{route.name}".'
+            ) from e
 
     def __init__(self, api_def: ApiDefinition, engine: str, **kwargs):
         if engine not in ApiClientEngine:
