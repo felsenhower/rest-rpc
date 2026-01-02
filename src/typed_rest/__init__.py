@@ -183,141 +183,120 @@ class ApiClient:
         match engine:
             case ApiClientEngine.REQUESTS:
 
-                def dummy(*, base_url: str) -> None:
-                    pass
+                def dummy(*, base_url: str) -> None: ...
 
             case ApiClientEngine.TESTCLIENT:
                 from fastapi import FastAPI
 
-                def dummy(*, app: FastAPI) -> None:
-                    pass
+                def dummy(*, app: FastAPI) -> None: ...
 
             case _:
-                assert_never(self.engine)
+                assert_never(engine)
         assert dummy is not None and callable(dummy)
         return inspect.signature(dummy)
 
-    def _make_request_with_requests(self, route: Route, *args, **kwargs):
+    def _add_accessor(self, route: Route, transport):
+        signature = route.signature
+
+        def accessor(*args, **kwargs):
+            try:
+                bound = signature.bind(*args, **kwargs)
+            except TypeError as e:
+                raise ValueError(
+                    f'Unable to use accessor for route "{route.name}": {e}'
+                ) from e
+
+            bound.apply_defaults()
+            for pname, value in bound.arguments.items():
+                param = signature.parameters[pname]
+                try:
+                    TypeAdapter(param.annotation).validate_python(value)
+                except pydantic.ValidationError as e:
+                    raise ValueError(
+                        f'Illegal type for parameter "{pname}". '
+                        f'Expected "{param.annotation}", got "{type(value)}".'
+                    ) from e
+            path = route.path
+            params = dict(bound.arguments)
+            for pname in list(params.keys()):
+                placeholder = f"{{{pname}}}"
+                if placeholder in path:
+                    path = path.replace(placeholder, str(params.pop(pname)))
+            json_data = transport(route.method, path, params or None)
+            try:
+                return TypeAdapter(signature.return_annotation).validate_python(
+                    json_data
+                )
+            except pydantic.ValidationError as e:
+                raise ValidationError(
+                    f'Validation error while accessing route "{route.name}".'
+                ) from e
+
+        accessor.__signature__ = signature
+        setattr(self, route.name, accessor)
+
+    def _add_accessor_with_requests(self, route: Route):
         import requests
 
-        name = route.name
-        path = route.path
-        signature = route.signature
-        try:
-            bound = signature.bind(*args, **kwargs)
-        except TypeError as e:
-            raise ValueError(f'Unable to use accessor for route "{name}": {e}') from e
-        bound.apply_defaults()
-        for pname, value in bound.arguments.items():
-            param = signature.parameters[pname]
-            type_adapter = TypeAdapter(param.annotation)
+        def transport(method: str, path: str, params: dict | None):
+            url = self.base_url.rstrip("/") + path
             try:
-                type_adapter.validate_python(value)
-            except pydantic.ValidationError as e:
-                raise ValueError(
-                    f'Unable to use accessor for route "{name}". '
-                    f'Illegal type for parameter "{pname}". '
-                    f'Expected "{param.annotation}", but got "{type(value)}".'
+                response = requests.request(
+                    method=method,
+                    url=url,
+                    params=params,
+                )
+            except requests.RequestException as e:
+                raise NetworkError(
+                    f'Network error while accessing route "{route.name}".'
                 ) from e
-        query_params = dict(bound.arguments)
-        for pname in list(query_params.keys()):
-            placeholder = "{" + pname + "}"
-            if placeholder in path:
-                path = path.replace(placeholder, str(query_params.pop(pname)))
-        url = self.base_url.rstrip("/") + path
+            try:
+                response.raise_for_status()
+            except requests.RequestException as e:
+                raise HttpError(
+                    f'HTTP error while accessing route "{route.name}".'
+                ) from e
+            try:
+                return response.json()
+            except requests.RequestException as e:
+                raise DecodeError(
+                    f'Decode error while accessing route "{route.name}".'
+                ) from e
 
-        query_params = query_params or None
-        try:
-            response = requests.request(
-                method=route.method,
-                url=url,
-                params=query_params,
-            )
-        except requests.RequestException as e:
-            raise NetworkError(
-                f'Network error while accessing route "{route.name}" with ({url=}, {query_params=}).'
-            ) from e
-        try:
-            response.raise_for_status()
-        except requests.RequestException as e:
-            raise HttpError(
-                f'HTTP error while accessing route "{route.name}" with ({url=}, {query_params=}).'
-            ) from e
-        try:
-            json_data = response.json()
-        except requests.RequestException as e:
-            raise HttpError(
-                f'Decode error while accessing route "{route.name}" with ({url=}, {query_params=}).'
-            ) from e
-        try:
-            type_adapter = TypeAdapter(signature.return_annotation)
-            return type_adapter.validate_python(json_data)
-        except pydantic.ValidationError as e:
-            raise ValidationError(
-                f'Validation error while accessing route "{route.name}" with ({url=}, {query_params=}).'
-            ) from e
+        self._add_accessor(route, transport)
 
-    def _make_request_with_testclient(self, route: Route, *args, **kwargs):
+    def _add_accessor_with_testclient(self, route: Route):
         import httpx
         import json
 
-        name = route.name
-        path = route.path
-        signature = route.signature
-
-        try:
-            bound = signature.bind(*args, **kwargs)
-        except TypeError as e:
-            raise ValueError(f'Unable to use accessor for route "{name}": {e}') from e
-
-        bound.apply_defaults()
-
-        for pname, value in bound.arguments.items():
-            param = signature.parameters[pname]
-            type_adapter = TypeAdapter(param.annotation)
+        def transport(method: str, path: str, params: dict | None):
+            url = path
             try:
-                type_adapter.validate_python(value)
-            except pydantic.ValidationError as e:
-                raise ValueError(
-                    f'Unable to use accessor for route "{name}". '
-                    f'Illegal type for parameter "{pname}". '
-                    f'Expected "{param.annotation}", but got "{type(value)}".'
+                response = self.testclient.request(
+                    method=method,
+                    url=url,
+                    params=params,
+                )
+            except httpx.HTTPError as e:
+                raise NetworkError(
+                    f'Network error while accessing route "{route.name}".'
                 ) from e
 
-        query_params = dict(bound.arguments)
-        for pname in list(query_params.keys()):
-            placeholder = "{" + pname + "}"
-            if placeholder in path:
-                path = path.replace(placeholder, str(query_params.pop(pname)))
+            try:
+                response.raise_for_status()
+            except httpx.HTTPError as e:
+                raise HttpError(
+                    f'HTTP error while accessing route "{route.name}".'
+                ) from e
 
-        try:
-            response = self.testclient.request(
-                method=route.method,
-                url=path,
-                params=query_params if query_params else None,
-            )
-        except httpx.HTTPError as e:
-            raise NetworkError(
-                f'Network error while accessing route "{route.name}".'
-            ) from e
-        try:
-            response.raise_for_status()
-        except httpx.HTTPError as e:
-            raise HttpError(f'HTTP error while accessing route "{route.name}".') from e
-        try:
-            json_data = response.json()
-        except json.JSONDecodeError as e:
-            raise DecodeError(
-                f'Decode error while accessing route "{route.name}".'
-            ) from e
+            try:
+                return response.json()
+            except json.JSONDecodeError as e:
+                raise DecodeError(
+                    f'Decode error while accessing route "{route.name}".'
+                ) from e
 
-        try:
-            type_adapter = TypeAdapter(signature.return_annotation)
-            return type_adapter.validate_python(json_data)
-        except pydantic.ValidationError as e:
-            raise ValidationError(
-                f'Validation error while accessing route "{route.name}".'
-            ) from e
+        self._add_accessor(route, transport)
 
     def __init__(self, api_def: ApiDefinition, engine: str, **kwargs):
         if engine not in ApiClientEngine:
@@ -334,7 +313,6 @@ class ApiClient:
             raise ValueError(
                 f'Invalid parameters for ApiClient(engine="{engine}"): {e}'
             ) from e
-
         bound.apply_defaults()
         match self.engine:
             case ApiClientEngine.REQUESTS:
@@ -344,39 +322,18 @@ class ApiClient:
                 from fastapi.testclient import TestClient
 
                 self.testclient = TestClient(bound.arguments["app"])
-
             case _:
                 assert_never(self.engine)
-        for name, route_def in self.api_def.routes.items():
-            if hasattr(self, name):
+        for route in self.api_def.routes.values():
+            if hasattr(self, route.name):
                 raise ValueError(
-                    f'Unable to add accessor for route "{name}". '
-                    "This should only happen when a route name is already used internally."
+                    f'Unable to add accessor for route "{route.name}". '
+                    "Name conflicts with ApiClient internals."
                 )
             match self.engine:
                 case ApiClientEngine.REQUESTS:
-
-                    def make_accessor(route):
-                        def accessor(*args, **kwargs):
-                            return self._make_request_with_requests(
-                                route, *args, **kwargs
-                            )
-
-                        accessor.__signature__ = route.signature
-                        return accessor
-
+                    self._add_accessor_with_requests(route)
                 case ApiClientEngine.TESTCLIENT:
-
-                    def make_accessor(route):
-                        def accessor(*args, **kwargs):
-                            return self._make_request_with_testclient(
-                                route, *args, **kwargs
-                            )
-
-                        accessor.__signature__ = route.signature
-                        return accessor
-
+                    self._add_accessor_with_testclient(route)
                 case _:
                     assert_never(self.engine)
-
-            setattr(self, name, make_accessor(route_def))
