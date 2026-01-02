@@ -161,6 +161,7 @@ class ApiImplementation:
 class ApiClientEngine(StrEnum):
     REQUESTS = "requests"
     TESTCLIENT = "testclient"
+    CUSTOM = "custom"
 
 
 class CommunicationError(IOError):
@@ -186,6 +187,9 @@ class ValidationError(CommunicationError):
     pass
 
 
+TransportFunction = Callable[[str, str, dict | None], object]
+
+
 class ApiClient:
     @staticmethod
     def _get_init_signature(engine: ApiClientEngine):
@@ -200,14 +204,16 @@ class ApiClient:
 
                 def dummy(*, app: FastAPI) -> None: ...
 
+            case ApiClientEngine.CUSTOM:
+
+                def dummy(*, transport: TransportFunction) -> None: ...
+
             case _:
                 assert_never(engine)
         assert dummy is not None and callable(dummy)
         return inspect.signature(dummy)
 
-    def _add_accessor(
-        self, route: Route, transport: Callable[[str, str, dict | None], object]
-    ):
+    def _add_accessor(self, route: Route, transport: TransportFunction):
         signature = route.signature
 
         def accessor(*args, **kwargs):
@@ -300,6 +306,9 @@ class ApiClient:
 
         self._add_accessor(route, transport)
 
+    def _add_accessor_with_custom(self, route: Route):
+        self._add_accessor(route, self.transport)
+
     def __init__(self, api_def: ApiDefinition, engine: str, **kwargs):
         if engine not in ApiClientEngine:
             raise ValueError(
@@ -323,7 +332,12 @@ class ApiClient:
             case ApiClientEngine.TESTCLIENT:
                 from fastapi.testclient import TestClient
 
-                self.testclient = TestClient(bound.arguments["app"])
+                self.app = bound.arguments["app"]
+                self.testclient = TestClient(self.app)
+
+            case ApiClientEngine.CUSTOM:
+                self.transport = bound.arguments["transport"]
+
             case _:
                 assert_never(self.engine)
         for route in self.api_def.routes.values():
@@ -337,5 +351,7 @@ class ApiClient:
                     self._add_accessor_with_requests(route)
                 case ApiClientEngine.TESTCLIENT:
                     self._add_accessor_with_testclient(route)
+                case ApiClientEngine.CUSTOM:
+                    self._add_accessor_with_custom(route)
                 case _:
                     assert_never(self.engine)
