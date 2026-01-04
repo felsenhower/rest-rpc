@@ -415,7 +415,16 @@ class DecodeError(CommunicationError): ...
 class ValidationError(CommunicationError): ...
 
 
-TransportFunction = Callable[[str, str, dict | None, dict | None, dict | None], object]
+@dataclass
+class Request:
+    method: str
+    path: str
+    query_params: dict | None
+    body: dict | None
+    headers: dict | None
+
+
+TransportFunction = Callable[[Request], object]
 
 
 class ApiClient:
@@ -441,10 +450,10 @@ class ApiClient:
         assert dummy is not None and callable(dummy)
         return inspect.signature(dummy)
 
-    def _add_accessor(self, route: Route, transport: TransportFunction):
-        signature = route.signature
-
-        def accessor(*args, **kwargs):
+    def _add_accessor(
+        self, route: Route, transport: TransportFunction, is_async: bool | None = None
+    ):
+        def get_request(signature: inspect.Signature, *args, **kwargs) -> Request:
             try:
                 bound = signature.bind(*args, **kwargs)
             except TypeError as e:
@@ -453,7 +462,6 @@ class ApiClient:
                 ) from e
 
             bound.apply_defaults()
-
             for pname, value in bound.arguments.items():
                 param = signature.parameters[pname]
                 try:
@@ -463,23 +471,18 @@ class ApiClient:
                         f'Illegal type for parameter "{pname}". '
                         f'Expected "{param.annotation}", got "{type(value)}".'
                     ) from e
-
             path = route.path
             query_params: dict | None = None
             body: dict | None = None
             headers: dict | None = None
-
             for pname, req_param in route.request_params.items():
                 value = bound.arguments[pname]
-
                 if isinstance(req_param, Path):
                     path = path.replace(f"{{{pname}}}", str(value))
-
                 elif isinstance(req_param, Query):
                     if query_params is None:
                         query_params = {}
                     query_params[pname] = value
-
                 elif isinstance(req_param, Body):
                     type_adapter = TypeAdapter(value.__class__)
                     body = type_adapter.dump_python(value)
@@ -487,8 +490,7 @@ class ApiClient:
                     if headers is None:
                         headers = {}
                     headers[pname] = value
-
-            json_data = transport(
+            return Request(
                 route.method,
                 path,
                 query_params,
@@ -496,6 +498,9 @@ class ApiClient:
                 headers,
             )
 
+        def validate_result(
+            signature: inspect.Signature, request: Request, json_data: Any
+        ) -> Any:
             try:
                 return TypeAdapter(signature.return_annotation).validate_python(
                     json_data
@@ -503,11 +508,30 @@ class ApiClient:
             except pydantic.ValidationError as e:
                 raise ValidationError(
                     route,
-                    path=path,
-                    query_params=query_params,
-                    body=body,
-                    headers=headers,
+                    path=request.path,
+                    query_params=request.query_params,
+                    body=request.body,
+                    headers=request.headers,
                 ) from e
+
+        signature = route.signature
+
+        if is_async is None:
+            is_async = inspect.iscoroutinefunction(transport)
+
+        if is_async:
+
+            async def accessor(*args, **kwargs):
+                request = get_request(signature, *args, **kwargs)
+                json_data = await transport(request)
+                return validate_result(signature, request, json_data)
+
+        else:
+
+            def accessor(*args, **kwargs):
+                request = get_request(signature, *args, **kwargs)
+                json_data = transport(request)
+                return validate_result(signature, request, json_data)
 
         setattr(self, route.name, accessor)
 
@@ -515,12 +539,13 @@ class ApiClient:
         import requests
 
         def transport(
-            method: str,
-            path: str,
-            query_params: dict | None,
-            body: dict | None,
-            headers: dict | None,
+            request: Request,
         ):
+            method = request.method
+            path = request.path
+            query_params = request.query_params
+            body = request.body
+            headers = request.headers
             url = self.base_url.rstrip("/") + path
             try:
                 response = requests.request(
@@ -571,12 +596,13 @@ class ApiClient:
         import httpx
 
         def transport(
-            method: str,
-            path: str,
-            query_params: dict | None,
-            body: dict | None,
-            headers: dict | None,
+            request: Request,
         ):
+            method = request.method
+            path = request.path
+            query_params = request.query_params
+            body = request.body
+            headers = request.headers
             url = path
             try:
                 response = self.testclient.request(
