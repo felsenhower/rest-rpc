@@ -1,17 +1,11 @@
-import pytest
-
-from typed_rest import (
-    ApiDefinition,
-    ApiImplementation,
-    ApiClient,
-    HttpError,
-    DecodeError,
-)
-
-from pydantic import BaseModel
 
 import fastapi
 import fastapi.testclient
+from typed_rest import (
+    ApiClient,
+    ApiDefinition,
+    ApiImplementation,
+)
 
 
 def test_client_simple():

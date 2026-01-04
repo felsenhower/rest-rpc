@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 
-from my_api import api_def
-
 from typed_rest import ApiClient
+
+from my_api import api_def
 
 
 def main() -> None:

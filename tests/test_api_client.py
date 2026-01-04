@@ -1,18 +1,16 @@
-from typing import Any
-
-import pytest
-
-from typed_rest import (
-    ApiDefinition,
-    ApiImplementation,
-    ApiClient,
-    HttpError,
-    DecodeError,
-)
-
-from pydantic import BaseModel
+from typing import Annotated, Any
 
 import fastapi
+import pytest
+from pydantic import BaseModel
+from typed_rest import (
+    ApiClient,
+    ApiDefinition,
+    ApiImplementation,
+    DecodeError,
+    HttpError,
+    Query,
+)
 
 
 def test_client_simple():
@@ -56,7 +54,7 @@ def test_client_with_arg():
 
     @api_def.get("/items/{item_id}")
     def route_with_optional_arg(
-        item_id: int, q: str | None = None
+        item_id: int, q: Annotated[str | None, Query()] = None
     ) -> dict[str, Any]: ...
 
     api_impl = ApiImplementation(api_def)
@@ -81,7 +79,7 @@ def test_client_with_optional_arg():
 
     @api_def.get("/items/{item_id}")
     def route_with_optional_arg(
-        item_id: int, q: str | None = None
+        item_id: int, q: Annotated[str | None, Query()] = None
     ) -> ExampleResult: ...
 
     api_impl = ApiImplementation(api_def)

@@ -1,8 +1,5 @@
 import pytest
-
-from typed_rest import ApiDefinition, ApiImplementation, ApiClient, HttpError
-
-from pydantic import BaseModel
+from typed_rest import ApiClient, ApiDefinition, ApiImplementation, HttpError
 
 
 def test_client_simple_requests(fastapi_server):

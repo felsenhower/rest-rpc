@@ -1,7 +1,8 @@
+import socket
 import threading
 import time
-import socket
 from contextlib import contextmanager
+
 import pytest
 import uvicorn
 

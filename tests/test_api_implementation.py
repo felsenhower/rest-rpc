@@ -1,8 +1,7 @@
+from typing import Annotated, Any
+
 import pytest
-
-from typing import Any
-
-from typed_rest import ApiDefinition, ApiImplementation
+from typed_rest import ApiDefinition, ApiImplementation, Query
 
 
 def test_add_simple_handlers():
@@ -16,7 +15,7 @@ def test_add_simple_handlers():
 
     @api_def.get("/items/{item_id}")
     def route_with_optional_arg(
-        item_id: int, q: str | None = None
+        item_id: int, q: Annotated[str | None, Query()] = None
     ) -> dict[str, Any]: ...
 
     api_impl = ApiImplementation(api_def)
@@ -78,7 +77,7 @@ def test_add_simple_handlers_with_annotation():
 
     @api_def.get("/items/{item_id}")
     def route_with_optional_arg(
-        item_id: int, q: str | None = None
+        item_id: int, q: Annotated[str | None, Query()] = None
     ) -> dict[str, str | int | None]: ...
 
     api_impl = ApiImplementation(api_def)
@@ -126,7 +125,7 @@ def test_detect_incorrect_default():
 
     @api_def.get("/items/{item_id}")
     def route_with_optional_arg(
-        item_id: int, q: str | None = None
+        item_id: int, q: Annotated[str | None, Query()] = None
     ) -> dict[str, Any]: ...
 
     api_impl = ApiImplementation(api_def)
@@ -162,7 +161,7 @@ def test_make_fastapi():
 
     @api_def.get("/items/{item_id}")
     def route_with_optional_arg(
-        item_id: int, q: str | None = None
+        item_id: int, q: Annotated[str | None, Query()] = None
     ) -> dict[str, str]: ...
 
     api_impl = ApiImplementation(api_def)

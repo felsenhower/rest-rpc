@@ -1,8 +1,8 @@
+from typing import Annotated
+
 import pytest
-
-from typed_rest import ApiDefinition
-
 from pydantic import BaseModel
+from typed_rest import ApiDefinition, Query
 
 
 def test_add_simple_routes():
@@ -16,7 +16,7 @@ def test_add_simple_routes():
 
     @api_def.get("/items/{item_id}")
     def route_with_optional_arg(
-        item_id: int, q: str | None = None
+        item_id: int, q: Annotated[str | None, Query()] = None
     ) -> dict[str, str]: ...
 
 
@@ -30,7 +30,7 @@ def test_add_basemodel_route():
 
     @api_def.get("/items/{item_id}")
     def route_with_optional_arg(
-        item_id: int, q: str | None = None
+        item_id: int, q: Annotated[str | None, Query()] = None
     ) -> ExampleResult: ...
 
 

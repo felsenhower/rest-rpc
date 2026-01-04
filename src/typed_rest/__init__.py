@@ -3,7 +3,7 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any, Optional, Union, assert_never
+from typing import Annotated, Any, Optional, Union, assert_never, get_args, get_origin
 
 import pydantic
 from pydantic import AliasChoices, AliasPath, AnyUrl, TypeAdapter
@@ -61,6 +61,7 @@ class Route:
     signature: inspect.Signature
     raw_annotations: dict[str, type]
     raw_defaults: tuple | None
+    request_params: dict[str, RequestParam]
 
 
 def is_valid_pydantic_type(tp) -> bool:
@@ -69,6 +70,60 @@ def is_valid_pydantic_type(tp) -> bool:
     except pydantic.PydanticSchemaGenerationError:
         return False
     return True
+
+
+def get_request_param(tp) -> RequestParam:
+    if get_origin(tp) is not Annotated:
+        return Path()
+    request_param_annotations = {
+        annotation
+        for annotation in get_args(tp)
+        if isinstance(annotation, RequestParam)
+    }
+    num_annotations = len(request_param_annotations)
+    if num_annotations == 0:
+        return Path()
+    if num_annotations > 1:
+        raise ValueError(
+            f"Can only add one RequestParam annotation. Gave { {a.__class__.__name__ for a in request_param_annotations} }."
+        )
+    return next(iter(request_param_annotations))
+
+
+def get_request_params(
+    path: str,
+    parameters: list[inspect.Parameter],
+) -> dict[str, RequestParam]:
+    parameter_names_from_path = set(re.findall(r"\{(.+?)\}", path))
+    if not parameter_names_from_path.issubset(p.name for p in parameters):
+        raise ValueError(
+            f"Parameters {parameter_names_from_path.difference(p.name for p in parameters)} are in path, but not in parameters."
+        )
+    request_params = {p.name: get_request_param(p.annotation) for p in parameters}
+    if not parameter_names_from_path.isdisjoint(
+        pname for (pname, a) in request_params.items() if not isinstance(a, Path)
+    ):
+        raise ValueError(
+            f"Parameters {parameter_names_from_path.intersection(pname for (pname, a) in request_params.items() if not isinstance(a, Path))} have incompatible annotations."
+        )
+
+    if not {
+        pname for (pname, a) in request_params.items() if isinstance(a, Path)
+    }.issubset(parameter_names_from_path):
+        raise ValueError(
+            f"Parameters {set(pname for (pname, a) in request_params.items() if isinstance(a, Path)).difference(parameter_names_from_path)} are in parameters, but not in path."
+        )
+    if sum(1 for a in request_params.values() if isinstance(a, Body)) > 1:
+        raise ValueError(
+            f"More than one Body parameter was given: {set(pname for (pname, a) in request_params.items() if isinstance(a, Body))}"
+        )
+    assert parameter_names_from_path == {
+        pname for (pname, a) in request_params.items() if isinstance(a, Path)
+    }, (
+        parameter_names_from_path,
+        {pname for (pname, a) in request_params.items() if isinstance(a, Path)},
+    )
+    return request_params
 
 
 class ApiDefinition:
@@ -91,12 +146,7 @@ class ApiDefinition:
                     f'Unable to add route "{name}". Path "{path}" does not start with "/".'
                 )
             signature = inspect.signature(func)
-            parameters = signature.parameters.values()
-            path_param_names = set(re.findall(r"\{(.+?)\}", path))
-            if not path_param_names.issubset(p.name for p in parameters):
-                raise ValueError(
-                    f'Unable to add route "{name}". Parameters {path_param_names.difference(p.name for p in parameters)} are in path, but not in parameters.'
-                )
+            parameters = list(signature.parameters.values())
             if signature.return_annotation == EMPTY:
                 raise ValueError(
                     f'Unable to add route "{name}" without a return annotation.'
@@ -125,11 +175,17 @@ class ApiDefinition:
                 raise ValueError(
                     f'Unable to add route "{name}". Annotations of parameters {tuple(p.name for p in parameters if not is_valid_pydantic_type(p.annotation))} cannot be converted to pydantic schemas.'
                 )
-
+            request_params = get_request_params(path, parameters)
             raw_annotations = func.__annotations__
             raw_defaults = func.__defaults__
             self.routes[name] = Route(
-                method, path, name, signature, raw_annotations, raw_defaults
+                method,
+                path,
+                name,
+                signature,
+                raw_annotations,
+                raw_defaults,
+                request_params,
             )
             return func
 
@@ -186,11 +242,17 @@ class ApiImplementation:
         for param, exp_param in zip(parameters, expected_parameters):
             assert param.name == exp_param.name
             pname = param.name
-            assert exp_param.annotation != EMPTY
-            if param.annotation != EMPTY:
-                if param.annotation != exp_param.annotation:
+            assert (exp_annotation := exp_param.annotation) != EMPTY
+            if (actual_annotation := param.annotation) != EMPTY:
+                if get_origin(actual_annotation) is Annotated:
                     raise ValueError(
-                        f'Unable to add handler "{name}". Type annotation of parameter "{pname}" doesn\'t match corresponding route. Expected "{exp_param.annotation}", but got "{param.annotation}".'
+                        f'Unable to add handler "{name}". Type annotation of parameter "{pname}" uses Annotated[] which is not supported.'
+                    )
+                if get_origin(exp_annotation) is Annotated:
+                    exp_annotation = get_args(exp_annotation)[0]
+                if actual_annotation != exp_annotation:
+                    raise ValueError(
+                        f'Unable to add handler "{name}". Type annotation of parameter "{pname}" doesn\'t match corresponding route. Expected "{exp_annotation}", but got "{actual_annotation}".'
                     )
             if param.default != EMPTY:
                 if param.default != exp_param.default:
