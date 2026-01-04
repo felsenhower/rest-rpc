@@ -404,7 +404,7 @@ class DecodeError(CommunicationError): ...
 class ValidationError(CommunicationError): ...
 
 
-TransportFunction = Callable[[str, str, dict | None], object]
+TransportFunction = Callable[[str, str, dict | None, dict | None, dict | None], object]
 
 
 class ApiClient:
@@ -442,6 +442,7 @@ class ApiClient:
                 ) from e
 
             bound.apply_defaults()
+
             for pname, value in bound.arguments.items():
                 param = signature.parameters[pname]
                 try:
@@ -451,75 +452,159 @@ class ApiClient:
                         f'Illegal type for parameter "{pname}". '
                         f'Expected "{param.annotation}", got "{type(value)}".'
                     ) from e
+
             path = route.path
-            params = dict(bound.arguments)
-            for pname in list(params.keys()):
-                placeholder = f"{{{pname}}}"
-                if placeholder in path:
-                    path = path.replace(placeholder, str(params.pop(pname)))
-            json_data = transport(route.method, path, params or None)
+            query_params: dict | None = None
+            body: dict | None = None
+            headers: dict | None = None
+
+            for pname, req_param in route.request_params.items():
+                value = bound.arguments[pname]
+
+                if isinstance(req_param, Path):
+                    path = path.replace(f"{{{pname}}}", str(value))
+
+                elif isinstance(req_param, Query):
+                    if query_params is None:
+                        query_params = {}
+                    query_params[pname] = value
+
+                elif isinstance(req_param, Body):
+                    body = value
+
+                elif isinstance(req_param, Header):
+                    if headers is None:
+                        headers = {}
+                    headers[pname] = value
+
+            json_data = transport(
+                route.method,
+                path,
+                query_params,
+                body,
+                headers,
+            )
+
             try:
                 return TypeAdapter(signature.return_annotation).validate_python(
                     json_data
                 )
             except pydantic.ValidationError as e:
-                raise ValidationError(route, path=path, params=params) from e
+                raise ValidationError(
+                    route,
+                    path=path,
+                    query_params=query_params,
+                    body=body,
+                    headers=headers,
+                ) from e
 
-        # accessor.__signature__ = signature
         setattr(self, route.name, accessor)
 
     def _add_accessor_with_requests(self, route: Route):
         import requests
 
-        def transport(method: str, path: str, params: dict | None):
+        def transport(
+            method: str,
+            path: str,
+            query_params: dict | None,
+            body: dict | None,
+            headers: dict | None,
+        ):
             url = self.base_url.rstrip("/") + path
             try:
                 response = requests.request(
                     method=method,
                     url=url,
-                    params=params,
+                    params=query_params,
+                    json=body,
+                    headers=headers,
                 )
             except requests.RequestException as e:
-                raise NetworkError(route, url=url, params=params) from e
+                raise NetworkError(
+                    route,
+                    url=url,
+                    query_params=query_params,
+                    body=body,
+                    headers=headers,
+                ) from e
+
             try:
                 response.raise_for_status()
             except requests.RequestException as e:
-                raise HttpError(route, url=url, params=params, response=response) from e
+                raise HttpError(
+                    route,
+                    url=url,
+                    query_params=query_params,
+                    body=body,
+                    headers=headers,
+                    response=response,
+                ) from e
+
             try:
                 return response.json()
             except requests.RequestException as e:
                 raise DecodeError(
-                    route, url=url, params=params, response=response
+                    route,
+                    url=url,
+                    query_params=query_params,
+                    body=body,
+                    headers=headers,
+                    response=response,
                 ) from e
 
         self._add_accessor(route, transport)
 
     def _add_accessor_with_testclient(self, route: Route):
         import json
-
         import httpx
 
-        def transport(method: str, path: str, params: dict | None):
+        def transport(
+            method: str,
+            path: str,
+            query_params: dict | None,
+            body: dict | None,
+            headers: dict | None,
+        ):
             url = path
             try:
                 response = self.testclient.request(
                     method=method,
                     url=url,
-                    params=params,
+                    params=query_params,
+                    json=body,
+                    headers=headers,
                 )
             except httpx.HTTPError as e:
-                raise NetworkError(route, url=url, params=params) from e
+                raise NetworkError(
+                    route,
+                    url=url,
+                    query_params=query_params,
+                    body=body,
+                    headers=headers,
+                ) from e
 
             try:
                 response.raise_for_status()
             except httpx.HTTPError as e:
-                raise HttpError(route, url=url, params=params, response=response) from e
+                raise HttpError(
+                    route,
+                    url=url,
+                    query_params=query_params,
+                    body=body,
+                    headers=headers,
+                    response=response,
+                ) from e
 
             try:
                 return response.json()
             except json.JSONDecodeError as e:
                 raise DecodeError(
-                    route, url=url, params=params, response=response
+                    route,
+                    url=url,
+                    query_params=query_params,
+                    body=body,
+                    headers=headers,
+                    response=response,
                 ) from e
 
         self._add_accessor(route, transport)

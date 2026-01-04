@@ -33,12 +33,20 @@ def test_client_simple():
 
     testclient = fastapi.testclient.TestClient(app)
 
-    def transport(method: str, path: str, params: dict | None):
+    def transport(
+        method: str,
+        path: str,
+        query_params: dict | None,
+        body: dict | None,
+        headers: dict | None,
+    ):
         url = path
         response = testclient.request(
             method=method,
             url=url,
-            params=params,
+            params=query_params,
+            json=body,
+            headers=headers,
         )
         response.raise_for_status()
         return response.json()
