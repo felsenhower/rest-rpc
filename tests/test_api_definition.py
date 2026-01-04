@@ -2,7 +2,7 @@ from typing import Annotated
 
 import pytest
 from pydantic import BaseModel
-from typed_rest import ApiDefinition, Query
+from typed_rest import ApiDefinition, Body, Query
 
 
 def test_add_simple_routes():
@@ -32,6 +32,18 @@ def test_add_basemodel_route():
     def route_with_optional_arg(
         item_id: int, q: Annotated[str | None, Query()] = None
     ) -> ExampleResult: ...
+
+
+class Item(BaseModel):
+    name: str
+    price: float
+
+
+def test_post():
+    api_def = ApiDefinition()
+
+    @api_def.post("/items/{item_id}")
+    def update_item(item_id: int, item: Annotated[Item, Body()]) -> ExampleResult: ...
 
 
 def test_detect_missing_return_annotation():

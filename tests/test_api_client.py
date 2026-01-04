@@ -7,6 +7,7 @@ from typed_rest import (
     ApiClient,
     ApiDefinition,
     ApiImplementation,
+    Body,
     DecodeError,
     HttpError,
     Query,
@@ -132,6 +133,43 @@ def test_client_with_optional_arg_basemodel():
     api_client = ApiClient(api_def, engine="testclient", app=app)
     result = api_client.route_with_optional_arg(item_id=42, q="Foo")
     assert result == ExampleResult(item_id=42, q="Foo")
+
+
+class Item(BaseModel):
+    name: str
+    price: float
+
+
+def test_client_with_post():
+    def make_def():
+        api_def = ApiDefinition()
+
+        @api_def.post("/items/{item_id}")
+        def update_item(
+            item_id: int, item: Annotated[Item, Body()]
+        ) -> ExampleResult: ...
+
+        return api_def
+
+    api_def = make_def()
+
+    def make_impl(api_def):
+        api_impl = ApiImplementation(api_def)
+
+        @api_impl.handler
+        def update_item(item_id, item):
+            return ExampleResult(
+                item_id=item_id, q=f'Item "{item.name}" costs {item.price:0.2f} EUR.'
+            )
+
+        return api_impl
+
+    api_impl = make_impl(api_def)
+
+    app = api_impl.make_fastapi()
+    api_client = ApiClient(api_def, engine="testclient", app=app)
+    result = api_client.update_item(item_id=42, item=Item(name="Apple", price=3.14))
+    assert result == ExampleResult(item_id=42, q='Item "Apple" costs 3.14 EUR.')
 
 
 def test_client_simple_http_methods():

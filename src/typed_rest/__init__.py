@@ -481,8 +481,8 @@ class ApiClient:
                     query_params[pname] = value
 
                 elif isinstance(req_param, Body):
-                    body = value
-
+                    type_adapter = TypeAdapter(value.__class__)
+                    body = type_adapter.dump_python(value)
                 elif isinstance(req_param, Header):
                     if headers is None:
                         headers = {}
@@ -567,6 +567,7 @@ class ApiClient:
 
     def _add_accessor_with_testclient(self, route: Route):
         import json
+
         import httpx
 
         def transport(
