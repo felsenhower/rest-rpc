@@ -207,6 +207,90 @@ class ApiDefinition:
         return self.route(method="PUT", path=path)
 
 
+def ensure_has_request_param_annotations(
+    annotations: dict[str, type], request_params: dict[str, RequestParam]
+) -> dict[str, type]:
+    assert "return" in annotations
+    param_annotations = {
+        pname: ptype for (pname, ptype) in annotations.items() if pname != "return"
+    }
+    assert param_annotations.keys() == request_params.keys(), (
+        "Non-matching parameter names",
+        param_annotations,
+        request_params,
+    )
+    new_annotations = annotations.copy()
+
+    def annotated_contains_request_param(annotated, request_param) -> bool:
+        assert get_origin(annotated) is Annotated
+        for arg in get_args(annotated):
+            if isinstance(arg, RequestParam):
+                assert arg.__class__ == request_param.__class__
+                return True
+        return False
+
+    for (pname, annotation), request_param in zip(
+        param_annotations.items(), request_params.values()
+    ):
+        if get_origin(annotation) is Annotated:
+            if annotated_contains_request_param(annotation, request_param):
+                new_annotations[pname] = annotation
+            else:
+                new_args = (*get_args(annotation), request_param)
+                new_annotated = Annotated[*new_args]
+                new_annotations[pname] = new_annotated
+        else:
+            new_annotated = Annotated[annotation, request_param]
+            new_annotations[pname] = new_annotated
+    return new_annotations
+
+
+def convert_annotations_to_fastapi(
+    annotations: dict[str, type], request_params: dict[str, RequestParam]
+) -> dict[str, type]:
+    import fastapi
+    from fastapi.openapi.models import Example as FastapiExample
+
+    annotations = ensure_has_request_param_annotations(annotations, request_params)
+    assert "return" in annotations
+    param_annotations = {
+        pname: ptype for (pname, ptype) in annotations.items() if pname != "return"
+    }
+    assert param_annotations.keys() == request_params.keys(), (
+        "Non-matching parameter names",
+        param_annotations,
+        request_params,
+    )
+    new_annotations = annotations.copy()
+    for pname, annotation in param_annotations.items():
+        assert get_origin(annotation) is Annotated
+        new_args = []
+        for arg in get_args(annotation):
+            if isinstance(arg, RequestParam):
+                args = dict(arg.bound_args.arguments)
+                if "openapi_examples" in args:
+                    args["openapi_examples"] = FastapiExample(
+                        dict(args["openapi_examples"])
+                    )
+                if isinstance(arg, Path):
+                    new_args.append(fastapi.Path(**args))
+                elif isinstance(arg, Query):
+                    new_args.append(fastapi.Query(**args))
+                elif isinstance(arg, Header):
+                    new_args.append(fastapi.Query(**args, convert_underscores=True))
+                elif isinstance(arg, Body):
+                    new_args.append(
+                        fastapi.Body(**args, embed=False, media_type="application/json")
+                    )
+                else:
+                    assert_never()
+            else:
+                new_args.append(arg)
+        new_annotated = Annotated[*new_args]
+        new_annotations[pname] = new_annotated
+    return new_annotations
+
+
 class ApiImplementation:
     def __init__(self, api_def: ApiDefinition):
         from fastapi import FastAPI  # noqa # pylint: disable=unused-import
@@ -259,7 +343,10 @@ class ApiImplementation:
                     raise ValueError(
                         f'Unable to add handler "{name}". Default value of parameter "{pname}" doesn\'t match corresponding route. Expected "{exp_param.default}", but got "{param.default}".'
                     )
-        func.__annotations__ = route.raw_annotations
+        annotations = convert_annotations_to_fastapi(
+            route.raw_annotations, route.request_params
+        )
+        func.__annotations__ = annotations
         func.__defaults__ = route.raw_defaults
         self.handlers[name] = func
         return func
@@ -378,7 +465,7 @@ class ApiClient:
             except pydantic.ValidationError as e:
                 raise ValidationError(route, path=path, params=params) from e
 
-        accessor.__signature__ = signature
+        # accessor.__signature__ = signature
         setattr(self, route.name, accessor)
 
     def _add_accessor_with_requests(self, route: Route):
