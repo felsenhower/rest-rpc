@@ -46,7 +46,7 @@ def test_network_error():
 
     api_def = make_def()
 
-    def make_impl():
+    def make_impl(api_def):
         api_impl = ApiImplementation(api_def)
 
         @api_impl.handler
