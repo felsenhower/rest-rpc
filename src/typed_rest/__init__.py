@@ -582,7 +582,7 @@ class ApiClient:
             request: Request,
         ):
             try:
-                url = self.base_url.rstrip("/") + route.path
+                url = self.base_url.rstrip("/") + request.path
                 async with self.session.request(
                     method=request.method,
                     url=url,
