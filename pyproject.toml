@@ -39,4 +39,5 @@ build-backend = "uv_build"
 members = [
     "examples/*",
     "tests",
+    "benchmark",
 ]
