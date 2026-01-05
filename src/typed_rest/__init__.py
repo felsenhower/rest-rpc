@@ -393,7 +393,8 @@ class ApiImplementation:
 class ApiClientEngine(StrEnum):
     AIOHTTP = "aiohttp"
     HTTPX = "httpx"
-    PYSCRIPT = ("pyscript",)
+    PYODIDE = "pyodide"
+    PYSCRIPT = "pyscript"
     REQUESTS = "requests"
     URLLIB3 = "urllib3"
     TESTCLIENT = "testclient"
@@ -446,6 +447,13 @@ class ApiClient:
                 def dummy(*, base_url: str) -> None: ...
 
             case ApiClientEngine.PYSCRIPT:
+
+                def dummy(
+                    *,
+                    base_url: str,
+                ) -> None: ...
+
+            case ApiClientEngine.PYODIDE:
 
                 def dummy(*, base_url: str) -> None: ...
 
@@ -661,6 +669,54 @@ class ApiClient:
 
         self._add_accessor(route, transport, is_async=False)
 
+    def _add_accessor_with_pyodide(self, route: Route):
+        import json
+        from urllib.parse import urlencode
+
+        from pyodide.http import AbortError, HttpStatusError, pyfetch
+
+        async def transport(
+            request: Request,
+        ):
+            url = self.base_url.rstrip("/") + request.path
+            if request.query_params is not None:
+                url += "?" + urlencode(request.query_params)
+            fetch_args = {"method": request.method}
+            if request.body is not None:
+                fetch_args["body"] = request.body
+            if request.headers is not None:
+                fetch_args["headers"] = request.headers
+            try:
+                response = await pyfetch(
+                    url,
+                    **fetch_args,
+                )
+            except AbortError as e:
+                raise NetworkError(
+                    route,
+                    url=url,
+                    fetch_args=fetch_args,
+                ) from e
+            try:
+                response.raise_for_status()
+            except HttpStatusError as e:
+                raise HttpError(
+                    route,
+                    url=url,
+                    fetch_args=fetch_args,
+                    response=response,
+                ) from e
+            try:
+                return await response.json()
+            except json.JSONDecodeError as e:
+                raise DecodeError(
+                    route,
+                    fetch_args=fetch_args,
+                    response=response,
+                ) from e
+
+        self._add_accessor(route, transport, is_async=True)
+
     def _add_accessor_with_pyscript(self, route: Route):
         import json
         from urllib.parse import urlencode
@@ -674,8 +730,6 @@ class ApiClient:
             if request.query_params is not None:
                 url += "?" + urlencode(request.query_params)
             fetch_args = {"url": url, "method": request.method}
-            if request.query_params is not None:
-                fetch_args["params"] = request.query_params
             if request.body is not None:
                 fetch_args["body"] = request.body
             if request.headers is not None:
@@ -896,6 +950,9 @@ class ApiClient:
             case ApiClientEngine.HTTPX:
                 self.base_url = bound.arguments["base_url"]
 
+            case ApiClientEngine.PYODIDE:
+                self.base_url = bound.arguments["base_url"]
+
             case ApiClientEngine.PYSCRIPT:
                 self.base_url = bound.arguments["base_url"]
 
@@ -928,6 +985,8 @@ class ApiClient:
                     self._add_accessor_with_aiohttp(route)
                 case ApiClientEngine.HTTPX:
                     self._add_accessor_with_httpx(route)
+                case ApiClientEngine.PYODIDE:
+                    self._add_accessor_with_pyodide(route)
                 case ApiClientEngine.PYSCRIPT:
                     self._add_accessor_with_pyscript(route)
                 case ApiClientEngine.REQUESTS:
