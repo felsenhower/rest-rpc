@@ -7,7 +7,7 @@ members = [
     "mimas-pyscript-ltk-test",
     "tests",
     "typed-rest",
-    "typed-rest-example-requests",
+    "typed-rest-example-simple",
 ]
 
 [[package]]
@@ -588,13 +588,13 @@ wheels = [
 [[package]]
 name = "mimas-pyscript-ltk-test"
 version = "0.1.0"
-source = { virtual = "examples/pyscript" }
+source = { virtual = "examples/browser" }
 dependencies = [
-    { name = "fastapi", extra = ["standard"] },
+    { name = "typed-rest", extra = ["fastapi"] },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "fastapi", extras = ["standard"], specifier = ">=0.128.0" }]
+requires-dist = [{ name = "typed-rest", extras = ["fastapi"], editable = "." }]
 
 [[package]]
 name = "multidict"
@@ -1138,9 +1138,9 @@ requires-dist = [
 provides-extras = ["fastapi", "requests", "aiohttp", "httpx", "urllib3"]
 
 [[package]]
-name = "typed-rest-example-requests"
+name = "typed-rest-example-simple"
 version = "0.1.0"
-source = { virtual = "examples/requests" }
+source = { virtual = "examples/simple" }
 dependencies = [
     { name = "typed-rest", extra = ["fastapi", "requests"] },
 ]
