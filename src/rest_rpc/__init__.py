@@ -7,6 +7,7 @@ Public classes have been re-exported for convenience:
     - [ApiImplementation](#rest_rpc.api_implementation.ApiImplementation)
 - [`api_client`](#rest_rpc.api_client)
     - [ApiClient](#rest_rpc.api_client.ApiClient)
+    - [CommunicationError](#rest_rpc.api_client.CommunicationError)
     - [NetworkError](#rest_rpc.api_client.NetworkError)
     - [HttpError](#rest_rpc.api_client.HttpError)
     - [DecodeError](#rest_rpc.api_client.DecodeError)
@@ -21,6 +22,9 @@ Public classes have been re-exported for convenience:
 
 from .api_client import (
     ApiClient as ApiClient,
+)
+from .api_client import (
+    CommunicationError as CommunicationError,
 )
 from .api_client import (
     DecodeError as DecodeError,
