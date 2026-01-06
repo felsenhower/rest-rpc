@@ -1,10 +1,4 @@
-packages = ["pydantic"]
+packages = ["rest-rpc"]
 
 [files]
-"./rest_rpc/__init__.py" = "./rest_rpc/__init__.py"
-"./rest_rpc/api_client.py" = "./rest_rpc/api_client.py"
-"./rest_rpc/api_definition.py" = "./rest_rpc/api_definition.py"
-"./rest_rpc/api_implementation.py" = "./rest_rpc/api_implementation.py"
-"./rest_rpc/request_params.py" = "./rest_rpc/request_params.py"
-"./rest_rpc/route.py" = "./rest_rpc/route.py"
 "./my_api.py" = ""

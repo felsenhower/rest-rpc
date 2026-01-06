@@ -2,16 +2,9 @@
 
 This is a small example for a web app that is written with the help of REST-RPC and [PyScript](https://pyscript.net/).
 
-Here, the complete front-end is located inside the `static` directory. The front-end logic is inside `static/main.py`.
+Here, the complete front-end is located inside the `static` directory. The front-end logic is inside `static/main.py`. Since the `static/pysript.toml` contains `rest-rpc` as a dependency, it is automatically installed from PyPI. `static/my_api.py` on the other hand is symlinked from `./my_api.py`.
 
 Inside `./main.py`, you'll find that the FastAPI app that is auto-generated from REST-RPC via `api_impl.make_fastapi()` is re-routed to `/api` and that `/` points to the `static` directory. This means that you'll find the `read_item` method under `/api/items/{item_id}` instead of simply `/items/{item_id}`. This has to be considered by the front-end: Here, we are using `ApiClient(..., base_url="/api/")`.
-
-> [!CAUTION]
-> This example takes multiple shortcuts that are not suited for production use.
->
-> For example, the `rest_rpc` module is served statically here. This is not a good idea in general for multiple reasons. One of them is that the `static/rest_rpc/__pycache__` directory will be served statically and the containing files contain sensitive information.
-
-Since `rest_rpc` was symlinked here for simplicity, the dependency management is not handled by PyScript. This means that we need to explicitly depend on `pydantic` inside the `static/pyscript.toml`.
 
 By the way, if you want to use Pyodide without Pyscript, you can do that too. In this example, you can see for yourself that you can also use `engine="pyodide"` and it will still work (since PyScript uses Pyodide internally here). So you can simply install REST-RPC inside your Pyodide environment.
 
