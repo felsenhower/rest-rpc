@@ -22,7 +22,7 @@ jobs:
           version: "0.9.8"
 
       - name: Build package
-        run: uv build
+        run: uv build --sdist --wheel
 
       - name: Publish to PyPI
         run: uv publish
