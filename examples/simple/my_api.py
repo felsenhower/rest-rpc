@@ -1,4 +1,4 @@
-from typing import Annotated
+from typing import Annotated, Any
 
 from rest_rpc import ApiDefinition, Query
 
@@ -12,4 +12,4 @@ def read_root() -> dict[str, str]: ...
 @api_def.get("/items/{item_id}")
 def read_item(
     item_id: int, q: Annotated[str | None, Query()] = None
-) -> dict[str, int | str | None]: ...
+) -> dict[str, Any]: ...
