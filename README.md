@@ -23,13 +23,13 @@ REST-RPC is for you, if you:
 To install `rest-rpc` for back-end use, run:
 
 ```shell
-$ uv add 'git+https://github.com/felsenhower/rest-rpc' --extra fastapi
+$ uv add rest-rpc --extra fastapi
 ```
 
 To install `rest-rpc` for front-end use, run:
 
 ```shell
-$ uv add 'git+https://github.com/felsenhower/rest-rpc' --extra requests
+$ uv add rest-rpc --extra requests
 ```
 
 If you want to use `urllib3`, `httpx`, or `aiohttp` instead of `requests`, just replace the corresponding extra.
