@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from rest_rpc import ApiClient, ApiClientEngine, ApiDefinition, Header
+from rest_rpc import ApiClient, ApiDefinition, Header
 
 
 def test_header_alias():
@@ -19,6 +19,6 @@ def test_header_alias():
         return token
 
     app = impl.make_fastapi()
-    client = ApiClient(api, ApiClientEngine.TESTCLIENT, app=app)
+    client = ApiClient(api, "testclient", app=app)
 
     assert client.alias_header(token="abc") == "abc"

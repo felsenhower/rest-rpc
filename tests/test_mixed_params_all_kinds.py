@@ -2,7 +2,6 @@ from typing import Annotated
 
 from rest_rpc import (
     ApiClient,
-    ApiClientEngine,
     ApiDefinition,
     Body,
     Header,
@@ -32,7 +31,7 @@ def test_all_param_kinds_together():
         return {"item_id": item_id, "q": q, "h": h, **body}
 
     app = impl.make_fastapi()
-    client = ApiClient(api, ApiClientEngine.TESTCLIENT, app=app)
+    client = ApiClient(api, "testclient", app=app)
 
     result = client.update(
         item_id=1,

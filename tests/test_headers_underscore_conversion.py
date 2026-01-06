@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from rest_rpc import ApiClient, ApiClientEngine, ApiDefinition, Header
+from rest_rpc import ApiClient, ApiDefinition, Header
 
 
 def test_header_underscore_conversion():
@@ -19,7 +19,7 @@ def test_header_underscore_conversion():
         return x_token
 
     app = impl.make_fastapi()
-    client = ApiClient(api, ApiClientEngine.TESTCLIENT, app=app)
+    client = ApiClient(api, "testclient", app=app)
 
     # FastAPI converts x_token <-> X-Token
     assert client.read_headers(x_token="secret") == "secret"

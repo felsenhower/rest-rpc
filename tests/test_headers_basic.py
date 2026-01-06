@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from rest_rpc import ApiClient, ApiClientEngine, ApiDefinition, Header
+from rest_rpc import ApiClient, ApiDefinition, Header
 
 
 def test_single_header_roundtrip():
@@ -19,6 +19,6 @@ def test_single_header_roundtrip():
         return h
 
     app = impl.make_fastapi()
-    client = ApiClient(api, ApiClientEngine.TESTCLIENT, app=app)
+    client = ApiClient(api, "testclient", app=app)
 
     assert client.ping(h="hello") == "hello"

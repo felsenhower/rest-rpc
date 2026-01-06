@@ -1,7 +1,7 @@
 from typing import Annotated
 
 import pytest
-from rest_rpc import ApiClient, ApiClientEngine, ApiDefinition, Query
+from rest_rpc import ApiClient, ApiDefinition, Query
 
 
 def test_client_type_validation_error():
@@ -20,7 +20,7 @@ def test_client_type_validation_error():
         return x
 
     app = impl.make_fastapi()
-    client = ApiClient(api, ApiClientEngine.TESTCLIENT, app=app)
+    client = ApiClient(api, "testclient", app=app)
 
     with pytest.raises(ValueError) as exc:
         client.read_number(x="not-an-int")

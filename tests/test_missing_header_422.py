@@ -1,7 +1,7 @@
 from typing import Annotated
 
 import pytest
-from rest_rpc import ApiClient, ApiClientEngine, ApiDefinition, Header
+from rest_rpc import ApiClient, ApiDefinition, Header
 
 
 def test_missing_required_header_results_in_http_error():
@@ -20,7 +20,7 @@ def test_missing_required_header_results_in_http_error():
         return h
 
     app = impl.make_fastapi()
-    client = ApiClient(api, ApiClientEngine.TESTCLIENT, app=app)
+    client = ApiClient(api, "testclient", app=app)
 
     with pytest.raises(ValueError):
         client.need_header(h=None)

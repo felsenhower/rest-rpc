@@ -2,7 +2,6 @@ from typing import Annotated
 
 from rest_rpc import (
     ApiClient,
-    ApiClientEngine,
     ApiDefinition,
     Body,
     Header,
@@ -32,7 +31,7 @@ def test_custom_transport_mapping():
 
     client = ApiClient(
         api,
-        ApiClientEngine.CUSTOM,
+        "custom",
         transport=transport,
     )
 
