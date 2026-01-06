@@ -332,12 +332,49 @@ Here are some notable differences between building your REST API with pure FastA
 - REST-RPC only supports Body parameters for `PATCH`, `PUT`, and `POST`, not for `GET` and `DELETE`. Furthermore, only one Body parameter is supported, and FastAPI's `Body(embed=True)` is not supported.
 - Out of FastAPI's [Request Parameters](https://fastapi.tiangolo.com/reference/parameters/), REST-RPC only supports `Path`, `Query`, `Body`, and `Header`, not `Cookie`, `Form`, or `File`.
 
-Other restrictions are:
-- In the API implementation, you don't need to add any annotations or default values to the router handlers. So usually, the only things that strictly have to match are the names of the route handler functions and their parameters. However, if you _decide_ to add annotations or default values, they _do_ have to match. Personal recommendation: Keep it simple in the prototyping phase since things are likely to be changed around and you'll be annoyed by changing the signatures in two places instead of one. Once the API definition becomes stable, you can still add the annotations to the API implementation to improve expressivity.
+Another important note: In the API implementation, you don't need to add any annotations or default values to the route handlers. So usually, the only things that strictly have to match are the names of the route handler functions and their parameters. So this is okay:
+
+```python
+@api_def.get("/foo")
+def foo(bar: int = 42) -> dict[str, Any]: ...
+
+# [...]
+
+@api_impl.handler
+def foo(bar):
+    return {"foo": bar}
+```
+
+However, if you _decide_ to add annotations or default values, they _do_ have to match exactly, so these are all okay:
+
+```python
+@api_impl.handler
+def foo(bar: int):
+    return {"foo": bar}
+    
+@api_impl.handler
+def foo(bar: int = 42):
+    return {"foo": bar}
+```
+
+But these are not:
+
+```python
+@api_impl.handler
+def foo(bar: float):
+    return {"foo": bar}
+    
+@api_impl.handler
+def foo(bar = 0):
+    return {"foo": bar}
+```
+
+> [!TIP]
+> Personal recommendation: Keep it simple in the prototyping phase since things are likely to be changed around and you'll be annoyed by changing the signatures in two places instead of one. Once the API definition becomes stable, you can still add the annotations to the API implementation to improve expressivity.
 
 ## Performance Comparison
 
-The [`benchmark`](directory) contains a very simple benchmarking script, where we compare the performance of the different engines on a simple `get("/")` without parameters. Your mileage may vary in other situations.
+The [`benchmark`](benchmark) directory contains a very simple benchmarking script, where we compare the performance of the different engines on a simple `get("/")` without parameters. Your mileage may vary in other situations.
 
 As you can see below, `httpx` performs noticeably worse in this specific benchmark.
 
@@ -349,4 +386,5 @@ So it's probably a good idea to use `requests` or `urllib3` if you want synchron
 
 - Support for authentication. At the moment, you can only do this via middlewares in the backend implementation.
 - Support parameters in `ApiImplementation.make_fastapi()` that are forwarded to the `FastAPI()` constructor.
+- Make argument annotation matching more lax (e.g. when we annotate `Annotated[int, Path()]` in the definition, it should be okay to just annotate `int` in the handler).
 - Missing something? Create an issue.
